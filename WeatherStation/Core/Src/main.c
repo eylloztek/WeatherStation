@@ -18,6 +18,7 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "main.h"
 #include "stdio.h"
 #include "bme280.h"
 #include "ssd1306.h"
@@ -34,7 +35,9 @@ typedef enum {
 	SCREEN_TEMP = 0,    // Temperature screen
 	SCREEN_HUM,         // Humidity screen
 	SCREEN_PRESS,       // Pressure screen
-	SCREEN_CLOCK        // Large clock display
+	SCREEN_AIR,			// Air quality screen
+	SCREEN_CLOCK       // Large clock display
+
 } ScreenMode;
 
 // System operating modes
@@ -67,6 +70,8 @@ typedef enum {
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+ADC_HandleTypeDef hadc1;
+
 I2C_HandleTypeDef hi2c1;
 
 RTC_HandleTypeDef hrtc;
@@ -91,6 +96,11 @@ uint8_t nextPressed = 0;
 volatile uint8_t btn_long = 0;
 volatile uint8_t btn_power = 0;
 volatile EditField currentField = EDIT_HOUR;
+uint32_t mq135_value;
+uint32_t mq_avg = 0;
+uint32_t mq_prev = 0;
+int32_t mq_diff = 0;
+char *trend;
 
 RTC_TimeTypeDef sTime;
 RTC_DateTypeDef sDate;
@@ -101,6 +111,7 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_RTC_Init(void);
+static void MX_ADC1_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -231,6 +242,7 @@ int main(void) {
 
 	MX_GPIO_Init();
 	MX_I2C1_Init();
+	MX_ADC1_Init();
 	MX_RTC_Init();
 
 	ssd1306_Init();
@@ -253,13 +265,21 @@ int main(void) {
 
 		// ===== SENSOR READ =====
 		BME280_GetData(&temp, &press, &hum);
+		HAL_ADC_Start(&hadc1);
+		HAL_ADC_PollForConversion(&hadc1, 100);
+		mq135_value = HAL_ADC_GetValue(&hadc1);
+		HAL_ADC_Stop(&hadc1);
 
 		// ===== DISPLAY CURRENT TIME =====
 		if (currentMode == MODE_NORMAL) {
+			ssd1306_SetCursor(0, 0);
+			ssd1306_WriteString("Time:", Font_6x8, White);
+
 			sprintf(buffer, "%02d:%02d:%02d", sTime.Hours, sTime.Minutes,
 					sTime.Seconds);
-			ssd1306_SetCursor(70, 0);
-			ssd1306_WriteString(buffer, Font_7x10, White);
+
+			ssd1306_SetCursor(50, 0);
+			ssd1306_WriteString(buffer, Font_6x8, White);
 		}
 
 		// ===== POWER BUTTON HANDLING =====
@@ -354,6 +374,25 @@ int main(void) {
 		else
 			comment = "Normal";
 
+		char *air_quality;
+		mq_avg = (mq_avg * 19 + mq135_value) / 20;
+		mq_diff = mq_avg - mq_prev;
+		mq_prev = mq_avg;
+
+		if (mq_avg < 900)
+			air_quality = "Good";
+		else if (mq_avg < 1050)
+			air_quality = "Moderate";
+		else
+			air_quality = "Bad";
+
+		if (mq_diff > 10)
+		    trend = "^ Worse";
+		else if (mq_diff < -10)
+		    trend = "v Better";
+		else
+		    trend = "- Stable";
+
 		// ===== DISPLAY MODE =====
 		if (currentMode == MODE_NORMAL) {
 			switch (currentScreen) {
@@ -369,16 +408,27 @@ int main(void) {
 				sprintf(buffer, "Press: %.1f hPa", press);
 				break;
 
+			case SCREEN_AIR:
+				sprintf(buffer, "Air:%s %lu", air_quality, mq_avg);
+				ssd1306_SetCursor(10, 20);
+				ssd1306_WriteString(buffer, Font_7x10, White);
+
+				sprintf(buffer, "Trend: %s", trend);
+				ssd1306_SetCursor(0, 45);
+				ssd1306_WriteString(buffer, Font_6x8, White);
+
+				goto skip_small_text;
+
 			case SCREEN_CLOCK:
 				sprintf(buffer, "%02d:%02d:%02d", sTime.Hours, sTime.Minutes,
 						sTime.Seconds);
-				ssd1306_SetCursor(10, 25);
+				ssd1306_SetCursor(15, 25);
 				ssd1306_WriteString(buffer, Font_11x18, White);
 				goto skip_small_text;
 			}
 
 			ssd1306_SetCursor(0, 20);
-			ssd1306_WriteString(buffer, Font_7x10, White);
+			ssd1306_WriteString(buffer, Font_11x18, White);
 
 			ssd1306_SetCursor(0, 54);
 			ssd1306_WriteString(comment, Font_6x8, White);
@@ -407,8 +457,8 @@ int main(void) {
 		ssd1306_UpdateScreen();
 		HAL_Delay(50);
 	}
+	/* USER CODE END 3 */
 }
-/* USER CODE END 3 */
 
 /**
  * @brief System Clock Configuration
@@ -455,6 +505,55 @@ void SystemClock_Config(void) {
 	if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK) {
 		Error_Handler();
 	}
+}
+
+/**
+ * @brief ADC1 Initialization Function
+ * @param None
+ * @retval None
+ */
+static void MX_ADC1_Init(void) {
+
+	/* USER CODE BEGIN ADC1_Init 0 */
+
+	/* USER CODE END ADC1_Init 0 */
+
+	ADC_ChannelConfTypeDef sConfig = { 0 };
+
+	/* USER CODE BEGIN ADC1_Init 1 */
+
+	/* USER CODE END ADC1_Init 1 */
+
+	/** Configure the global features of the ADC (Clock, Resolution, Data Alignment and number of conversion)
+	 */
+	hadc1.Instance = ADC1;
+	hadc1.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV4;
+	hadc1.Init.Resolution = ADC_RESOLUTION_12B;
+	hadc1.Init.ScanConvMode = DISABLE;
+	hadc1.Init.ContinuousConvMode = DISABLE;
+	hadc1.Init.DiscontinuousConvMode = DISABLE;
+	hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
+	hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
+	hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
+	hadc1.Init.NbrOfConversion = 1;
+	hadc1.Init.DMAContinuousRequests = DISABLE;
+	hadc1.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
+	if (HAL_ADC_Init(&hadc1) != HAL_OK) {
+		Error_Handler();
+	}
+
+	/** Configure for the selected ADC regular channel its corresponding rank in the sequencer and its sample time.
+	 */
+	sConfig.Channel = ADC_CHANNEL_0;
+	sConfig.Rank = 1;
+	sConfig.SamplingTime = ADC_SAMPLETIME_3CYCLES;
+	if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK) {
+		Error_Handler();
+	}
+	/* USER CODE BEGIN ADC1_Init 2 */
+
+	/* USER CODE END ADC1_Init 2 */
+
 }
 
 /**
