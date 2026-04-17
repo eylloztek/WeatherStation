@@ -68,7 +68,6 @@ typedef enum {
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
-ADC_HandleTypeDef hadc1;
 
 I2C_HandleTypeDef hi2c1;
 
@@ -104,7 +103,6 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_RTC_Init(void);
-static void MX_ADC1_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -362,21 +360,25 @@ int main(void) {
 		else
 			comment = "Normal";
 
-
-
 		// ===== DISPLAY MODE =====
 		if (currentMode == MODE_NORMAL) {
 			switch (currentScreen) {
 			case SCREEN_TEMP:
-				sprintf(buffer, "Temp: %.1f C", temp);
+				sprintf(buffer, "Temp: %.1fC", temp);
+				ssd1306_SetCursor(0, 25);
+				ssd1306_WriteString(buffer, Font_11x18, White);
 				break;
 
 			case SCREEN_HUM:
-				sprintf(buffer, "Hum: %.1f %%", hum);
+				sprintf(buffer, "Hum: %.0f%%", hum);
+				ssd1306_SetCursor(0, 25);
+				ssd1306_WriteString(buffer, Font_11x18, White);
 				break;
 
 			case SCREEN_PRESS:
-				sprintf(buffer, "Press: %.1f hPa", press);
+				sprintf(buffer, "Press: %.0f hPa", press);
+				ssd1306_SetCursor(0, 25);
+				ssd1306_WriteString(buffer, Font_7x10, White);
 				break;
 
 			case SCREEN_CLOCK:
@@ -384,35 +386,38 @@ int main(void) {
 						sTime.Seconds);
 				ssd1306_SetCursor(15, 25);
 				ssd1306_WriteString(buffer, Font_11x18, White);
-				goto skip_small_text;
 			}
 
-			ssd1306_SetCursor(0, 20);
-			ssd1306_WriteString(buffer, Font_7x10, White);
-
-			ssd1306_SetCursor(0, 54);
-			ssd1306_WriteString(comment, Font_6x8, White);
+			if (currentScreen != SCREEN_CLOCK) {
+				ssd1306_SetCursor(0, 54);
+				ssd1306_WriteString(comment, Font_6x8, White);
+			}
 		} else {
 			ssd1306_SetCursor(0, 0);
 			ssd1306_WriteString("SET TIME", Font_7x10, White);
 
-			sprintf(buffer, "%02d:%02d:%02d", sTime.Hours, sTime.Minutes,
+			uint8_t blink = (HAL_GetTick() / 500) % 2;
+
+			char timeStr[9];
+			sprintf(timeStr, "%02d:%02d:%02d", sTime.Hours, sTime.Minutes,
 					sTime.Seconds);
 
-			ssd1306_SetCursor(20, 20);
-			ssd1306_WriteString(buffer, Font_7x10, White);
+			if (blink) {
+				if (currentField == EDIT_HOUR) {
+					timeStr[0] = ' ';
+					timeStr[1] = ' ';
+				} else if (currentField == EDIT_MIN) {
+					timeStr[3] = ' ';
+					timeStr[4] = ' ';
+				} else {
+					timeStr[6] = ' ';
+					timeStr[7] = ' ';
+				}
+			}
 
-			if (currentField == EDIT_HOUR)
-				ssd1306_SetCursor(20, 30);
-			else if (currentField == EDIT_MIN)
-				ssd1306_SetCursor(40, 30);
-			else
-				ssd1306_SetCursor(60, 30);
-
-			ssd1306_WriteString("^", Font_7x10, White);
+			ssd1306_SetCursor(10, 20);
+			ssd1306_WriteString(timeStr, Font_11x18, White);
 		}
-
-		skip_small_text:
 
 		ssd1306_UpdateScreen();
 		HAL_Delay(50);
@@ -425,95 +430,46 @@ int main(void) {
  * @retval None
  */
 void SystemClock_Config(void) {
-	RCC_OscInitTypeDef RCC_OscInitStruct = { 0 };
-	RCC_ClkInitTypeDef RCC_ClkInitStruct = { 0 };
+RCC_OscInitTypeDef RCC_OscInitStruct = { 0 };
+RCC_ClkInitTypeDef RCC_ClkInitStruct = { 0 };
 
-	/** Configure the main internal regulator output voltage
-	 */
-	__HAL_RCC_PWR_CLK_ENABLE();
-	__HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE3);
+/** Configure the main internal regulator output voltage
+ */
+__HAL_RCC_PWR_CLK_ENABLE();
+__HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE3);
 
-	/** Initializes the RCC Oscillators according to the specified parameters
-	 * in the RCC_OscInitTypeDef structure.
-	 */
-	RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI
-			| RCC_OSCILLATORTYPE_LSI;
-	RCC_OscInitStruct.LSEState = RCC_LSE_OFF;
-	RCC_OscInitStruct.HSIState = RCC_HSI_ON;
-	RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
-	RCC_OscInitStruct.LSIState = RCC_LSI_ON;
-	RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
-	RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
-	RCC_OscInitStruct.PLL.PLLM = 16;
-	RCC_OscInitStruct.PLL.PLLN = 336;
-	RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV4;
-	RCC_OscInitStruct.PLL.PLLQ = 2;
-	RCC_OscInitStruct.PLL.PLLR = 2;
-	if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK) {
-		Error_Handler();
-	}
-
-	/** Initializes the CPU, AHB and APB buses clocks
-	 */
-	RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK
-			| RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
-	RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
-	RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
-	RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
-	RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
-
-	if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK) {
-		Error_Handler();
-	}
+/** Initializes the RCC Oscillators according to the specified parameters
+ * in the RCC_OscInitTypeDef structure.
+ */
+RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI
+		| RCC_OSCILLATORTYPE_LSI;
+RCC_OscInitStruct.LSEState = RCC_LSE_OFF;
+RCC_OscInitStruct.HSIState = RCC_HSI_ON;
+RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
+RCC_OscInitStruct.LSIState = RCC_LSI_ON;
+RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
+RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
+RCC_OscInitStruct.PLL.PLLM = 16;
+RCC_OscInitStruct.PLL.PLLN = 336;
+RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV4;
+RCC_OscInitStruct.PLL.PLLQ = 2;
+RCC_OscInitStruct.PLL.PLLR = 2;
+if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK) {
+	Error_Handler();
 }
 
-/**
- * @brief ADC1 Initialization Function
- * @param None
- * @retval None
+/** Initializes the CPU, AHB and APB buses clocks
  */
-static void MX_ADC1_Init(void) {
+RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK
+		| RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
+RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
+RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
+RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
+RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
 
-	/* USER CODE BEGIN ADC1_Init 0 */
-
-	/* USER CODE END ADC1_Init 0 */
-
-	ADC_ChannelConfTypeDef sConfig = { 0 };
-
-	/* USER CODE BEGIN ADC1_Init 1 */
-
-	/* USER CODE END ADC1_Init 1 */
-
-	/** Configure the global features of the ADC (Clock, Resolution, Data Alignment and number of conversion)
-	 */
-	hadc1.Instance = ADC1;
-	hadc1.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV4;
-	hadc1.Init.Resolution = ADC_RESOLUTION_12B;
-	hadc1.Init.ScanConvMode = DISABLE;
-	hadc1.Init.ContinuousConvMode = DISABLE;
-	hadc1.Init.DiscontinuousConvMode = DISABLE;
-	hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
-	hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
-	hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
-	hadc1.Init.NbrOfConversion = 1;
-	hadc1.Init.DMAContinuousRequests = DISABLE;
-	hadc1.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
-	if (HAL_ADC_Init(&hadc1) != HAL_OK) {
-		Error_Handler();
-	}
-
-	/** Configure for the selected ADC regular channel its corresponding rank in the sequencer and its sample time.
-	 */
-	sConfig.Channel = ADC_CHANNEL_0;
-	sConfig.Rank = 1;
-	sConfig.SamplingTime = ADC_SAMPLETIME_3CYCLES;
-	if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK) {
-		Error_Handler();
-	}
-	/* USER CODE BEGIN ADC1_Init 2 */
-
-	/* USER CODE END ADC1_Init 2 */
-
+if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK) {
+	Error_Handler();
+}
 }
 
 /**
@@ -523,28 +479,28 @@ static void MX_ADC1_Init(void) {
  */
 static void MX_I2C1_Init(void) {
 
-	/* USER CODE BEGIN I2C1_Init 0 */
+/* USER CODE BEGIN I2C1_Init 0 */
 
-	/* USER CODE END I2C1_Init 0 */
+/* USER CODE END I2C1_Init 0 */
 
-	/* USER CODE BEGIN I2C1_Init 1 */
+/* USER CODE BEGIN I2C1_Init 1 */
 
-	/* USER CODE END I2C1_Init 1 */
-	hi2c1.Instance = I2C1;
-	hi2c1.Init.ClockSpeed = 100000;
-	hi2c1.Init.DutyCycle = I2C_DUTYCYCLE_2;
-	hi2c1.Init.OwnAddress1 = 0;
-	hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
-	hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
-	hi2c1.Init.OwnAddress2 = 0;
-	hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
-	hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
-	if (HAL_I2C_Init(&hi2c1) != HAL_OK) {
-		Error_Handler();
-	}
-	/* USER CODE BEGIN I2C1_Init 2 */
+/* USER CODE END I2C1_Init 1 */
+hi2c1.Instance = I2C1;
+hi2c1.Init.ClockSpeed = 100000;
+hi2c1.Init.DutyCycle = I2C_DUTYCYCLE_2;
+hi2c1.Init.OwnAddress1 = 0;
+hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
+hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
+hi2c1.Init.OwnAddress2 = 0;
+hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
+hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
+if (HAL_I2C_Init(&hi2c1) != HAL_OK) {
+	Error_Handler();
+}
+/* USER CODE BEGIN I2C1_Init 2 */
 
-	/* USER CODE END I2C1_Init 2 */
+/* USER CODE END I2C1_Init 2 */
 
 }
 
@@ -555,29 +511,29 @@ static void MX_I2C1_Init(void) {
  */
 static void MX_RTC_Init(void) {
 
-	/* USER CODE BEGIN RTC_Init 0 */
+/* USER CODE BEGIN RTC_Init 0 */
 
-	/* USER CODE END RTC_Init 0 */
+/* USER CODE END RTC_Init 0 */
 
-	/* USER CODE BEGIN RTC_Init 1 */
+/* USER CODE BEGIN RTC_Init 1 */
 
-	/* USER CODE END RTC_Init 1 */
+/* USER CODE END RTC_Init 1 */
 
-	/** Initialize RTC Only
-	 */
-	hrtc.Instance = RTC;
-	hrtc.Init.HourFormat = RTC_HOURFORMAT_24;
-	hrtc.Init.AsynchPrediv = 127;
-	hrtc.Init.SynchPrediv = 255;
-	hrtc.Init.OutPut = RTC_OUTPUT_DISABLE;
-	hrtc.Init.OutPutPolarity = RTC_OUTPUT_POLARITY_HIGH;
-	hrtc.Init.OutPutType = RTC_OUTPUT_TYPE_OPENDRAIN;
-	if (HAL_RTC_Init(&hrtc) != HAL_OK) {
-		Error_Handler();
-	}
-	/* USER CODE BEGIN RTC_Init 2 */
+/** Initialize RTC Only
+ */
+hrtc.Instance = RTC;
+hrtc.Init.HourFormat = RTC_HOURFORMAT_24;
+hrtc.Init.AsynchPrediv = 127;
+hrtc.Init.SynchPrediv = 255;
+hrtc.Init.OutPut = RTC_OUTPUT_DISABLE;
+hrtc.Init.OutPutPolarity = RTC_OUTPUT_POLARITY_HIGH;
+hrtc.Init.OutPutType = RTC_OUTPUT_TYPE_OPENDRAIN;
+if (HAL_RTC_Init(&hrtc) != HAL_OK) {
+	Error_Handler();
+}
+/* USER CODE BEGIN RTC_Init 2 */
 
-	/* USER CODE END RTC_Init 2 */
+/* USER CODE END RTC_Init 2 */
 
 }
 
@@ -587,49 +543,49 @@ static void MX_RTC_Init(void) {
  * @retval None
  */
 static void MX_GPIO_Init(void) {
-	GPIO_InitTypeDef GPIO_InitStruct = { 0 };
-	/* USER CODE BEGIN MX_GPIO_Init_1 */
+GPIO_InitTypeDef GPIO_InitStruct = { 0 };
+/* USER CODE BEGIN MX_GPIO_Init_1 */
 
-	/* USER CODE END MX_GPIO_Init_1 */
+/* USER CODE END MX_GPIO_Init_1 */
 
-	/* GPIO Ports Clock Enable */
-	__HAL_RCC_GPIOA_CLK_ENABLE();
-	__HAL_RCC_GPIOB_CLK_ENABLE();
+/* GPIO Ports Clock Enable */
+__HAL_RCC_GPIOA_CLK_ENABLE();
+__HAL_RCC_GPIOB_CLK_ENABLE();
 
-	/*Configure GPIO pins : PA1 PA4 */
-	GPIO_InitStruct.Pin = GPIO_PIN_1 | GPIO_PIN_4;
-	GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
-	GPIO_InitStruct.Pull = GPIO_PULLUP;
-	HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+/*Configure GPIO pins : PA1 PA4 */
+GPIO_InitStruct.Pin = GPIO_PIN_1 | GPIO_PIN_4;
+GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
+GPIO_InitStruct.Pull = GPIO_PULLUP;
+HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-	/*Configure GPIO pin : PA5 */
-	GPIO_InitStruct.Pin = GPIO_PIN_5;
-	GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
-	GPIO_InitStruct.Pull = GPIO_PULLUP;
-	HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+/*Configure GPIO pin : PA5 */
+GPIO_InitStruct.Pin = GPIO_PIN_5;
+GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
+GPIO_InitStruct.Pull = GPIO_PULLUP;
+HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-	/*Configure GPIO pin : PB0 */
-	GPIO_InitStruct.Pin = GPIO_PIN_0;
-	GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
-	GPIO_InitStruct.Pull = GPIO_PULLUP;
-	HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+/*Configure GPIO pin : PB0 */
+GPIO_InitStruct.Pin = GPIO_PIN_0;
+GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
+GPIO_InitStruct.Pull = GPIO_PULLUP;
+HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
-	/* EXTI interrupt init*/
-	HAL_NVIC_SetPriority(EXTI0_IRQn, 0, 0);
-	HAL_NVIC_EnableIRQ(EXTI0_IRQn);
+/* EXTI interrupt init*/
+HAL_NVIC_SetPriority(EXTI0_IRQn, 0, 0);
+HAL_NVIC_EnableIRQ(EXTI0_IRQn);
 
-	HAL_NVIC_SetPriority(EXTI1_IRQn, 0, 0);
-	HAL_NVIC_EnableIRQ(EXTI1_IRQn);
+HAL_NVIC_SetPriority(EXTI1_IRQn, 0, 0);
+HAL_NVIC_EnableIRQ(EXTI1_IRQn);
 
-	HAL_NVIC_SetPriority(EXTI4_IRQn, 0, 0);
-	HAL_NVIC_EnableIRQ(EXTI4_IRQn);
+HAL_NVIC_SetPriority(EXTI4_IRQn, 0, 0);
+HAL_NVIC_EnableIRQ(EXTI4_IRQn);
 
-	HAL_NVIC_SetPriority(EXTI9_5_IRQn, 0, 0);
-	HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
+HAL_NVIC_SetPriority(EXTI9_5_IRQn, 0, 0);
+HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
 
-	/* USER CODE BEGIN MX_GPIO_Init_2 */
+/* USER CODE BEGIN MX_GPIO_Init_2 */
 
-	/* USER CODE END MX_GPIO_Init_2 */
+/* USER CODE END MX_GPIO_Init_2 */
 }
 
 /* USER CODE BEGIN 4 */
@@ -641,12 +597,12 @@ static void MX_GPIO_Init(void) {
  * @retval None
  */
 void Error_Handler(void) {
-	/* USER CODE BEGIN Error_Handler_Debug */
-	/* User can add his own implementation to report the HAL error return state */
-	__disable_irq();
-	while (1) {
-	}
-	/* USER CODE END Error_Handler_Debug */
+/* USER CODE BEGIN Error_Handler_Debug */
+/* User can add his own implementation to report the HAL error return state */
+__disable_irq();
+while (1) {
+}
+/* USER CODE END Error_Handler_Debug */
 }
 #ifdef USE_FULL_ASSERT
 /**
