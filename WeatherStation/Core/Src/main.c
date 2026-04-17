@@ -22,7 +22,6 @@
 #include "bme280.h"
 #include "ssd1306.h"
 #include "ssd1306_fonts.h"
-#include <math.h>
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
@@ -35,7 +34,6 @@ typedef enum {
 	SCREEN_TEMP = 0,    // Temperature screen
 	SCREEN_HUM,         // Humidity screen
 	SCREEN_PRESS,       // Pressure screen
-	SCREEN_AIR,			// Air quality screen
 	SCREEN_CLOCK       // Large clock display
 
 } ScreenMode;
@@ -96,17 +94,6 @@ uint8_t nextPressed = 0;
 volatile uint8_t btn_long = 0;
 volatile uint8_t btn_power = 0;
 volatile EditField currentField = EDIT_HOUR;
-uint32_t mq135_value;
-uint32_t mq_avg = 0;
-uint32_t mq_prev = 0;
-int32_t mq_diff = 0;
-uint32_t mq_baseline = 0;
-
-float ppm = 0.0f;    // Calculated CO2 ppm
-float scale = 0.2f;
-uint8_t calibrated = 0;
-static uint16_t calib_count = 0;
-char *trend;
 
 RTC_TimeTypeDef sTime;
 RTC_DateTypeDef sDate;
@@ -248,7 +235,6 @@ int main(void) {
 
 	MX_GPIO_Init();
 	MX_I2C1_Init();
-	MX_ADC1_Init();
 	MX_RTC_Init();
 
 	ssd1306_Init();
@@ -271,10 +257,6 @@ int main(void) {
 
 		// ===== SENSOR READ =====
 		BME280_GetData(&temp, &press, &hum);
-		HAL_ADC_Start(&hadc1);
-		HAL_ADC_PollForConversion(&hadc1, 100);
-		mq135_value = HAL_ADC_GetValue(&hadc1);
-		HAL_ADC_Stop(&hadc1);
 
 		// ===== DISPLAY CURRENT TIME =====
 		if (currentMode == MODE_NORMAL) {
@@ -380,62 +362,7 @@ int main(void) {
 		else
 			comment = "Normal";
 
-		// ===== MQ135 FILTER =====
-		mq_avg = (mq_avg * 19 + mq135_value) / 20;
 
-		// ===== ADC → VOLTAGE =====
-		float voltage = (mq_avg / 4095.0f) * 3.3f;
-
-		// avoid division by zero
-		if (voltage < 0.1f)
-			voltage = 0.1f;
-
-		// ===== CALIBRATION (FIRST ~200 SAMPLES) =====
-		if (!calibrated) {
-			mq_baseline += mq_avg;
-			calib_count++;
-
-			if (calib_count >= 200) {
-
-				mq_baseline /= 200;
-				calibrated = 1;
-			}
-
-			ppm = 0;
-		} else {
-			// ===== PPM CALCULATION =====
-
-			// CO2 approximation curve
-			if (mq_avg > mq_baseline) {
-				ppm = 400 + ((int32_t) mq_avg - (int32_t) mq_baseline) * scale;
-			} else {
-				//ppm = 400;
-			}
-		}
-
-		char *air_quality;
-
-		if (!calibrated) {
-			air_quality = "Calibrating...";
-		} else {
-			if (ppm < 600)
-				air_quality = "Good";
-			else if (ppm < 1000)
-				air_quality = "Moderate";
-			else
-				air_quality = "Bad";
-		}
-
-		static float ppm_prev = 0;
-		float ppm_diff = ppm - ppm_prev;
-		ppm_prev = ppm;
-
-		if (ppm_diff > 20)
-			trend = "^ Worse";
-		else if (ppm_diff < -20)
-			trend = "v Better";
-		else
-			trend = "- Stable";
 
 		// ===== DISPLAY MODE =====
 		if (currentMode == MODE_NORMAL) {
@@ -451,26 +378,6 @@ int main(void) {
 			case SCREEN_PRESS:
 				sprintf(buffer, "Press: %.1f hPa", press);
 				break;
-
-			case SCREEN_AIR:
-				if (!calibrated) {
-					ssd1306_SetCursor(0, 20);
-					ssd1306_WriteString("Calibrating...", Font_7x10, White);
-				} else {
-					sprintf(buffer, "CO2: %.0f ppm", ppm);
-					ssd1306_SetCursor(0, 20);
-					ssd1306_WriteString(buffer, Font_11x18, White);
-
-					sprintf(buffer, "%s", air_quality);
-					ssd1306_SetCursor(0, 45);
-					ssd1306_WriteString(buffer, Font_6x8, White);
-
-					sprintf(buffer, "Trend: %s", trend);
-					ssd1306_SetCursor(0, 55);
-					ssd1306_WriteString(buffer, Font_6x8, White);
-				}
-
-				goto skip_small_text;
 
 			case SCREEN_CLOCK:
 				sprintf(buffer, "%02d:%02d:%02d", sTime.Hours, sTime.Minutes,
