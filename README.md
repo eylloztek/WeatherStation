@@ -2,7 +2,7 @@
 
 ## Overview
 
-This project is a real-time embedded weather station built using an STM32 microcontroller. It reads environmental data from a BME280 sensor and displays the results on an SSD1306 OLED screen. The system also includes a real-time clock (RTC) and a multi-button interface for user interaction.
+This project is a real-time embedded weather station built using an STM32 Nucleo F446RE microcontroller. It reads environmental data from a BME280 sensor and displays the results on an SSD1306 OLED screen. The system also includes a real-time clock (RTC) and a multi-button interface for user interaction.
 
 ---
 
